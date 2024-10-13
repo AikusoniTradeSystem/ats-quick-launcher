@@ -1,159 +1,55 @@
 # ats-quick-launcher
-AikusoniTradeSystem를 실행할 때 사용
 
-### 목록
-- [개요](#개요)
-- [사용법](#사용법)
-- [끄는 법](#끄는-법)
+AikusoniTradeSystem 앱을 도커를 사용해 배포할 때 사용
 
 ### 개요
 - Docker Compose를 사용해 손쉽게 앱을 배포 할 수 있다.
 
-### 사용법 (예시)
-> 요약 :
-> 의존성대로 도커 컴포즈를 실행한다.
-> 1. 00_docekr-compose.network.yml
-> 1. 10_docekr-compose.db.yml 
-> 2. 20_docker-compose.vault.yml
-> 3. 30_docker-compose.monitoring.yml
-> 4. 40_docker-compose.yml (혹은 40_docker-compose.dev.yml)
+### 사용법
+- 프로젝트 루트에 예시로 작성된 배치 스크립트를 정렬된 순서대로 실행합니다.
+- 05_BASE_* 형태의 스크립트는 공용 스크립트로 05_0000_generate_vault_certs.sh 같은 다른 스크립트가 실행합니다.
+- 스크립트는 의존성 순서대로 작성되어 있습니다.
+- 관련 서비스를 종료하는 스크립트는 D로 시작합니다. (예: D00_stop_network.sh)
+- D99_stop_all.sh 스크립트를 실행하면 모든 서비스를 종료합니다.
+- X21_unseal_vault.sh 스크립트는 볼트 서버를 봉인할 때 사용하는 스크립트입니다. (보안키를 감추기 위해 비상시 사용)
 
-* 프로젝트 루트에 예시로 작성된 배치 스크립트도 있습니다.
+### 서비스 실행 스크립트 실행 순서
+```bash
+# 00. 네트워크 생성
+./00_start_network.sh
 
-1. 이 레포지토리를 클론한다.   
-```sh
-$ git clone https://github.com/AikusoniTradeSystem/ats-quick-launcher.git
-```
+# 05. 인증서 생성
+# 05_0000. 볼트 서버 인증서와 접속용 클라이언트 인증서 생성
+./05_0000_generate_vault_certs.sh
+# 05_0010. user db 서버 인증서와 접속용 클라이언트 인증서 생성
+./05_0010_generate_user_db_certs.sh
 
-2. 프로젝트 루트에 쉘 스크립트를 만든다. \
-이 쉘 스크립트는 필요한 환경변수를 설정하고 도커 컴포즈를 올리는 역할을 한다.
-> 다음은 예시 스크립트
-```sh
-# 네트워크 시작 스크립트
-$ vi network_start.sh
-#!/bin/bash
+# 10. 데이터베이스 실행
+./10_start_db.sh
 
-(
-  docker compose -f 00_docker-compose.network.yml pull
-  docker compose -f 00_docker-compose.network.yml build --no-cache
-  docker compose -f 00_docker-compose.network.yml up -d
-)
-```
+# 20. 볼트 서버 실행
+./20_start_vault.sh
 
-```sh
-# DB 시작 스크립트
-$ vi db_start.sh
-#!/bin/bash
+# 21. 볼트 서버 초기화 (볼트 unseal)
+./21_unseal_vault.sh
 
-(
-  export PG_DATA=/home/ats/pg_data
+# 22. 볼트 엔진 설정
+# 22_00_0000 데이터베이스 엔진 활성화
+./22_00_0000_secrets_engine_database_enable.sh
+# 22_10_0000 approle 엔진 활성화
+./22_10_0000_auth_engine.approle_enable.sh
 
-  docker compose -f 10_docker-compose.db.yml pull
-  docker compose -f 10_docker-compose.db.yml build --no-cache
-  docker compose -f 10_docker-compose.db.yml up -d
-)
-```
+# 23. 볼트 데이터베이스 설정
+# 23_0000. user db 설정
+./23_0000_vault_user_db_config.sh
 
-```sh
-# Vault 시작 스크립트  
-$ vi vault_start.sh
-#!/bin/bash
+# 25. 앱롤 시크릿 생성
+# 25_0000. user db 앱롤 시크릿 생성
+./25_0000_vault_publish_user_db_approle_secret.sh
 
-(
-  docker compose -f 20_docker-compose.vault.yml pull
-  docker compose -f 20_docker-compose.vault.yml build --no-cache
-  docker compose -f 20_docker-compose.vault.yml up -d
-)
-```
+# 30. 모니터링 도구 실행
+./30_start_monitoring.sh
 
-```sh
-# Monitoring 시작 스크립트
-$ vi monitoring_start.sh
-#!/bin/bash
-
-(
-    # determine the architecture to build cadvisor image
-    ARCH=$(uname -m)
-    case "$ARCH" in
-      x86_64)
-        GOARCH="amd64"
-        ;;
-      aarch64)
-        GOARCH="arm64"
-        ;;
-      *)
-        echo "Unknown server architecture: $ARCH"
-        exit 1
-        ;;
-    esac
-    
-    export GOARCH=$GOARCH
-    
-    docker compose -f 30_docker-compose.monitoring.yml pull
-    docker compose -f 30_docker-compose.monitoring.yml up -d
-)
-```
-
-```sh
-# App 시작 스크립트
-$ vi ats_start.sh
-#!/bin/bash
-
-(
-  # host environment variables
-  export NGINX_LOG_HOME=/home/ats/logs/nginx
-  export TEST_SERVER_SPRING_LOG_HOME=/home/ats/logs/test-server-spring
-  export SESSION_AUTH_SERVER_LOG_HOME=/home/ats/logs/session-auth-server
-  
-  # You can add more environment variables here (See 40_docker-compose.latest.yml)
-
-  # run docker compose
-  docker compose -f 40_docker-compose.yml pull
-  docker compose -f 40_docker-compose.yml build --no-cache
-  docker compose -f 40_docker-compose.yml up -d
-  
-  # If you want to use dev image, use the following command
-  # docker compose -f 40_docker-compose.develop.yml pull 
-  # docker compose -f 40_docker-compose.develop.yml build --no-cache
-  # docker compose -f 40_docker-compose.develop.yml up -d
-)
-```
-
-3. 작성한 쉘 스크립트를 순서대로 실행한다.
-```sh
-# If you have permission issues, you may need to use sudo.
-$ chmod +x ats_start.sh
-$ ./ats_start.sh
-```
-
-### 확인
-- 다음과 같이 curl로 페이지를 호출해보거나, 웹 브라우저로 페이지를 열면 서버가 정상 작동 중인 것을 확인 할 수 있습니다. 
-```sh
-$ curl http://localhost:8080/api/session/swagger-ui/index.html
-$ curl http://localhost:8080/api/test-server-spring/swagger-ui/index.html
-````
-
-![server-running](./documents/imgs/server-running-test.png)
-
-### 끄는 법
-1. 프로젝트 루트에 쉘 스크립트를 만든다. \
-이 스크립트는 환경변수를 설정하고 도커 컴포즈를 내리는 역할을 한다.
-> 다음은 예시 스크립트
-```sh
-$ vi all_stop.sh
-#!/bin/bash
-(
-  docker compose -f 40_docker-compose.yml down
-  docker compose -f 30_docker-compose.monitoring.yml down
-  docker compose -f 20_docker-compose.vault.yml down
-  docker compose -f 10_docker-compose.db.yml down
-  docker compose -f 00_docker-compose.network.yml down
-)
-```
-
-2. 작성한 쉘 스크립트를 실행한다.
-```sh
-# If you have permission issues, you may need to use sudo.
-$ chmod +x all_stop.sh
-$ ./all_stop.sh
+# 40. 서비스 실행
+./40_start_services_latest.sh # 개발 버전 이미지를 쓸 때는 ./40_start_services_develop.sh
 ```
