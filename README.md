@@ -11,7 +11,7 @@ AikusoniTradeSystem 앱을 도커를 사용해 배포할 때 사용
 - 스크립트는 의존성 순서대로 작성되어 있습니다.
 - 관련 서비스를 종료하는 스크립트는 D로 시작합니다. (예: D00_stop_network.sh)
 - D99_stop_all.sh 스크립트를 실행하면 모든 서비스를 종료합니다.
-- X21_unseal_vault.sh 스크립트는 볼트 서버를 봉인할 때 사용하는 스크립트입니다. (보안키를 감추기 위해 비상시 사용)
+- 기타 스크립트는 X로 시작합니다. (예: X21_seal_vault.sh, X21_unseal_vault.sh)
 
 ### 서비스 실행 스크립트 실행 순서
 ```bash
@@ -31,7 +31,7 @@ AikusoniTradeSystem 앱을 도커를 사용해 배포할 때 사용
 ./20_start_vault.sh
 
 # 21. 볼트 서버 초기화 (볼트 unseal)
-./21_unseal_vault.sh
+./21_init_vault.sh
 
 # 22. 볼트 엔진 설정
 # 22_00_0000 데이터베이스 엔진 활성화
